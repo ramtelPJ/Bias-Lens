@@ -1,26 +1,111 @@
 @import "tailwindcss";
+@import "@clerk/ui/themes/shadcn.css";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  /* Primitive */
+  --color-black: #0d0d0f;
+  --color-gray-600: #6b7280;
+  --color-gray-200: #e5e7eb;
+  --color-gray-100: #f6f6f6;
+  --color-gray-50: #f0f0f0;
+  --color-white: #ffffff;
+  --color-red-700: #b42318;
+  --color-blue-700: #1d4ed8;
+  --color-near-black: #171717;
+
+  /* Semantic */
+  --background: var(--color-white);
+  --background-secondary: var(--color-gray-50);
+  --foreground: var(--color-black);
+  --muted-foreground: var(--color-gray-600);
+  --surface: var(--color-gray-100);
+  --surface-inverted: var(--color-near-black);
+  --foreground-inverted: var(--color-white);
+  --muted-foreground-inverted: #a3a3a3;
+  --border: var(--color-gray-200);
+  --divider: var(--color-gray-200);
+
+  --primary: var(--color-black);
+  --primary-foreground: var(--color-white);
+  --secondary: var(--color-white);
+  --secondary-foreground: var(--color-black);
+
+  --bias-left: var(--color-red-700);
+  --bias-left-foreground: var(--color-white);
+  --bias-center: var(--color-gray-200);
+  --bias-center-foreground: var(--color-black);
+  --bias-right: var(--color-blue-700);
+  --bias-right-foreground: var(--color-white);
+
+  --destructive: var(--color-red-700);
+  --destructive-foreground: var(--color-white);
+  --ring: var(--color-black);
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 12px;
+  --radius-full: 9999px;
+
+  /* Shadows */
+  --shadow-color-sm: rgba(0, 0, 0, 0.05);
+  --shadow-color-md: rgba(0, 0, 0, 0.08);
+  --shadow-color-lg: rgba(0, 0, 0, 0.12);
+
+  /* Layout */
+  --container-max: 1280px;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
+  --font-sans: var(--font-poppins);
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-background: var(--background);
+  --color-background-secondary: var(--background-secondary);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-surface: var(--surface);
+  --color-surface-inverted: var(--surface-inverted);
+  --color-foreground-inverted: var(--foreground-inverted);
+  --color-muted-foreground-inverted: var(--muted-foreground-inverted);
+  --color-border: var(--border);
+  --color-divider: var(--divider);
+
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+
+  --color-bias-left: var(--bias-left);
+  --color-bias-left-foreground: var(--bias-left-foreground);
+  --color-bias-center: var(--bias-center);
+  --color-bias-center-foreground: var(--bias-center-foreground);
+  --color-bias-right: var(--bias-right);
+  --color-bias-right-foreground: var(--bias-right-foreground);
+
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-ring: var(--ring);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+  --radius-full: var(--radius-full);
+
+  --shadow-sm: 0 1px 2px var(--shadow-color-sm);
+  --shadow-md: 0 4px 12px var(--shadow-color-md);
+  --shadow-lg: 0 12px 24px var(--shadow-color-lg);
+
+  --container-biasly: var(--container-max);
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+}
+
+.container-biasly {
+  width: 100%;
+  max-width: var(--container-max);
+  margin-inline: auto;
+  padding-inline: 24px;
 }
