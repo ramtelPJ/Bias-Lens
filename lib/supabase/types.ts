@@ -28,6 +28,7 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["sources"]["Insert"]>;
+        Relationships: [];
       };
       articles: {
         Row: {
@@ -55,6 +56,7 @@ export interface Database {
           analyzed_at?: string | null;
         };
         Update: Partial<Database["public"]["Tables"]["articles"]["Insert"]>;
+        Relationships: [];
       };
       article_analyses: {
         Row: {
@@ -94,6 +96,7 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["article_analyses"]["Insert"]>;
+        Relationships: [];
       };
       logs: {
         Row: {
@@ -113,7 +116,10 @@ export interface Database {
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["logs"]["Insert"]>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
   };
 }
