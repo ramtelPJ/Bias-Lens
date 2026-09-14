@@ -12,6 +12,7 @@ const badgeVariants = cva(
         left: "bg-bias-left text-bias-left-foreground",
         center: "bg-bias-center text-bias-center-foreground",
         right: "bg-bias-right text-bias-right-foreground",
+        neutral: "bg-surface text-muted-foreground",
       },
       size: {
         default: "text-sm px-3 py-1.5",

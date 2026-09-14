@@ -4,7 +4,6 @@ import { Bookmark, MoreHorizontal, Share2 } from "lucide-react";
 import { auth } from "@clerk/nextjs/server";
 
 import { BiasMeter } from "@/components/bias-meter";
-import { RelatedStoryCard } from "@/components/related-story-card";
 import { SidebarCard } from "@/components/sidebar-card";
 import { StatBar } from "@/components/stat-bar";
 import { Button } from "@/components/ui/button";
@@ -12,23 +11,19 @@ import { CategoryChips } from "@/components/layout/category-chips";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { UtilityBar } from "@/components/layout/utility-bar";
-import { getArticleDetail } from "@/lib/sample-article-details";
-import { SAMPLE_ARTICLES } from "@/lib/sample-articles";
-import { cn } from "@/lib/utils";
+import { getArticleById } from "@/lib/supabase/queries/articles";
+import { cn, formatDate } from "@/lib/utils";
 
 const BIAS_TEXT_CLASS = {
   left: "text-bias-left",
   center: "text-bias-center-foreground",
   right: "text-bias-right",
+  mixed: "text-foreground",
+  unclear: "text-foreground",
 } as const;
 
-function getDominantBias(leftPercentage: number, centerPercentage: number, rightPercentage: number) {
-  const entries = [
-    { key: "left" as const, label: "Left", value: leftPercentage },
-    { key: "center" as const, label: "Center", value: centerPercentage },
-    { key: "right" as const, label: "Right", value: rightPercentage },
-  ];
-  return entries.reduce((max, entry) => (entry.value > max.value ? entry : max));
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
 export default async function ArticlePage({
@@ -39,19 +34,11 @@ export default async function ArticlePage({
   await auth.protect();
 
   const { id } = await params;
-  const article = SAMPLE_ARTICLES.find((a) => a.id === id);
+  const article = await getArticleById(id);
   if (!article) notFound();
 
-  const detail = getArticleDetail(article);
-  const dominant = getDominantBias(
-    article.leftPercentage,
-    article.centerPercentage,
-    article.rightPercentage,
-  );
-
-  const leftCount = Math.round((article.leftPercentage / 100) * article.sourceCount);
-  const centerCount = Math.round((article.centerPercentage / 100) * article.sourceCount);
-  const rightCount = article.sourceCount - leftCount - centerCount;
+  const { analysis, source } = article;
+  const bodyParagraphs = article.raw_text.split("\n\n");
 
   return (
     <>
@@ -63,18 +50,14 @@ export default async function ArticlePage({
         <div className="container-biasly py-8">
           <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
             <article className="lg:col-span-2">
-              <p className="text-xs text-muted-foreground">
-                {article.category} · {article.region}
-              </p>
+              <p className="text-xs text-muted-foreground">{source.name}</p>
 
               <h1 className="mt-2 text-3xl font-bold leading-tight text-foreground sm:text-4xl">
                 {article.title}
               </h1>
 
               <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
-                <p className="text-sm text-muted-foreground">
-                  By {detail.author} | {detail.publishedAt} | {detail.readTime}
-                </p>
+                <p className="text-sm text-muted-foreground">{formatDate(article.published_at)}</p>
                 <div className="flex items-center gap-4">
                   <button
                     type="button"
@@ -102,7 +85,7 @@ export default async function ArticlePage({
 
               <div className="relative mt-5 aspect-16/9 w-full overflow-hidden rounded-lg">
                 <Image
-                  src={article.imageUrl}
+                  src={article.image_url}
                   alt=""
                   fill
                   className="object-cover"
@@ -110,52 +93,33 @@ export default async function ArticlePage({
                   priority
                 />
               </div>
-              <p className="mt-2 text-xs text-muted-foreground">{detail.imageCaption}</p>
 
               <section className="mt-6 rounded-lg border border-border bg-background p-5 shadow-sm">
                 <div className="mb-4 flex items-center justify-between">
-                  <h2 className="text-base font-semibold text-foreground">
-                    Bias Distribution
-                  </h2>
+                  <h2 className="text-base font-semibold text-foreground">Bias Distribution</h2>
                 </div>
                 <BiasMeter
-                  leftPercentage={article.leftPercentage}
-                  centerPercentage={article.centerPercentage}
-                  rightPercentage={article.rightPercentage}
+                  leftPercentage={analysis.left_percentage}
+                  centerPercentage={analysis.center_percentage}
+                  rightPercentage={analysis.right_percentage}
                 />
-                <p className="mt-3 text-xs text-muted-foreground">
-                  {article.sourceCount} sources
-                </p>
               </section>
 
               <div className="mt-6 flex max-w-[75ch] flex-col gap-4 text-base leading-relaxed text-foreground">
-                {detail.bodyParagraphs.map((paragraph, index) => (
+                {bodyParagraphs.map((paragraph, index) => (
                   <p key={index}>{paragraph}</p>
                 ))}
               </div>
-
-              <hr className="my-8 border-divider" />
-
-              <section>
-                <h2 className="mb-4 text-xl font-semibold text-foreground">
-                  Related Stories
-                </h2>
-                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  {detail.relatedStories.map((story) => (
-                    <RelatedStoryCard key={story.id} story={story} />
-                  ))}
-                </div>
-              </section>
             </article>
 
             <aside className="flex flex-col gap-6 lg:col-span-1">
               <SidebarCard title="Bias Analysis">
                 <p className="text-sm text-muted-foreground">Overall Bias</p>
-                <p className={cn("mt-1 text-2xl font-bold", BIAS_TEXT_CLASS[dominant.key])}>
-                  {dominant.label} {dominant.value}%
+                <p className={cn("mt-1 text-2xl font-bold", BIAS_TEXT_CLASS[analysis.bias_label])}>
+                  {capitalize(analysis.bias_label)}
                 </p>
-                <p className="mt-1 text-sm text-bias-right">
-                  Based on {article.sourceCount} balanced sources
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {Math.round(analysis.confidence * 100)}% confidence
                 </p>
 
                 <hr className="my-4 border-divider" />
@@ -163,106 +127,59 @@ export default async function ArticlePage({
                 <div className="flex flex-col gap-3">
                   <StatBar
                     label="Left"
-                    value={`${article.leftPercentage}%`}
-                    percentage={article.leftPercentage}
+                    value={`${analysis.left_percentage}%`}
+                    percentage={analysis.left_percentage}
                     variant="left"
                   />
                   <StatBar
                     label="Center"
-                    value={`${article.centerPercentage}%`}
-                    percentage={article.centerPercentage}
+                    value={`${analysis.center_percentage}%`}
+                    percentage={analysis.center_percentage}
                     variant="center"
                   />
                   <StatBar
                     label="Right"
-                    value={`${article.rightPercentage}%`}
-                    percentage={article.rightPercentage}
+                    value={`${analysis.right_percentage}%`}
+                    percentage={analysis.right_percentage}
                     variant="right"
                   />
                 </div>
 
-                <p className="mt-4 text-xs text-muted-foreground">
-                  Our analysis is based on the political leaning of the publication
-                  and how the story is framed. Sources are weighted by reliability
-                  and recency.
-                </p>
+                <p className="mt-4 text-xs text-muted-foreground">{analysis.disclaimer}</p>
 
                 <Button variant="secondary" className="mt-4 w-full">
                   How We Analyze Bias
                 </Button>
               </SidebarCard>
 
-              <SidebarCard title="AI Summary">
+              <SidebarCard title="AI Analysis">
                 <p className="text-xs text-muted-foreground">
-                  Generated {detail.aiSummary.generatedAt} · {detail.aiSummary.readTime}
+                  {capitalize(analysis.sentiment_label)} sentiment
                 </p>
-                <ul className="mt-3 flex flex-col gap-3">
-                  {detail.aiSummary.bullets.map((bullet, index) => (
-                    <li key={index} className="flex gap-2 text-sm text-foreground">
-                      <span className="mt-2 size-1 shrink-0 rounded-full bg-muted-foreground" />
-                      {bullet}
-                    </li>
-                  ))}
-                </ul>
+                <p className="mt-3 text-sm text-foreground">{analysis.summary}</p>
+
+                {analysis.framing_notes && (
+                  <p className="mt-3 text-sm text-muted-foreground">{analysis.framing_notes}</p>
+                )}
+
+                {analysis.loaded_terms.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {analysis.loaded_terms.map((term) => (
+                      <span
+                        key={term}
+                        className="rounded-full bg-surface px-2 py-1 text-xs text-muted-foreground"
+                      >
+                        {term}
+                      </span>
+                    ))}
+                  </div>
+                )}
+
                 <p className="mt-4 text-xs text-muted-foreground">
-                  AI summaries can make mistakes.
+                  AI analysis can make mistakes.
                 </p>
                 <Button variant="secondary" className="mt-4 w-full">
                   Provide Feedback
-                </Button>
-              </SidebarCard>
-
-              <SidebarCard title="Source Breakdown">
-                <p className="text-xs text-muted-foreground">
-                  {article.sourceCount} Total Sources
-                </p>
-                <div className="mt-3 flex flex-col gap-3">
-                  <StatBar
-                    label="Left"
-                    value={`${leftCount} (${article.leftPercentage}%)`}
-                    percentage={article.leftPercentage}
-                    variant="left"
-                  />
-                  <StatBar
-                    label="Center"
-                    value={`${centerCount} (${article.centerPercentage}%)`}
-                    percentage={article.centerPercentage}
-                    variant="center"
-                  />
-                  <StatBar
-                    label="Right"
-                    value={`${rightCount} (${article.rightPercentage}%)`}
-                    percentage={article.rightPercentage}
-                    variant="right"
-                  />
-                </div>
-
-                <hr className="my-4 border-divider" />
-
-                <div className="mb-2 flex items-center justify-between text-xs font-semibold text-muted-foreground">
-                  <span>Top Sources</span>
-                  <span>Bias</span>
-                </div>
-                <ul className="flex flex-col gap-2">
-                  {detail.topSources.map((source) => (
-                    <li
-                      key={source.name}
-                      className="flex items-center justify-between text-sm"
-                    >
-                      <span className="text-foreground">{source.name}</span>
-                      <span className={cn("font-medium", BIAS_TEXT_CLASS[source.bias])}>
-                        {source.bias === "left"
-                          ? "Left"
-                          : source.bias === "right"
-                            ? "Right"
-                            : "Center"}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-
-                <Button variant="secondary" className="mt-4 w-full">
-                  View All Sources
                 </Button>
               </SidebarCard>
             </aside>

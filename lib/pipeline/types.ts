@@ -25,3 +25,14 @@ export interface RunSummary {
   rejectionReasons: Record<string, number>;
   perSource: PerSourceResult[];
 }
+
+export interface AnalysisRunSummary {
+  status: "completed" | "failed";
+  articlesScanned: number;
+  articlesAnalyzed: number;
+  articlesSkipped: number;
+  articlesFailed: number;
+  batchesProcessed: number;
+  durationMs: number;
+  failureReasons: Record<string, number>;
+}

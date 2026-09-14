@@ -3,9 +3,25 @@ import Link from "next/link";
 import { Info } from "lucide-react";
 
 import { BiasMeter } from "@/components/bias-meter";
-import type { SampleArticle } from "@/lib/sample-articles";
+import { Badge } from "@/components/ui/badge";
+import type { ArticleWithAnalysis } from "@/lib/supabase/queries/articles";
+import { formatDate } from "@/lib/utils";
 
-export function ArticleCard({ article }: { article: SampleArticle }) {
+const BIAS_BADGE_VARIANT = {
+  left: "left",
+  center: "center",
+  right: "right",
+  mixed: "neutral",
+  unclear: "neutral",
+} as const;
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
+
+export function ArticleCard({ article }: { article: ArticleWithAnalysis }) {
+  const { analysis, source } = article;
+
   return (
     <article className="overflow-hidden rounded-lg border border-border bg-background shadow-sm transition-shadow hover:shadow-md">
       <div className="relative aspect-16/10 w-full">
@@ -14,7 +30,7 @@ export function ArticleCard({ article }: { article: SampleArticle }) {
           className="absolute inset-0 z-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
         >
           <Image
-            src={article.imageUrl}
+            src={article.image_url}
             alt=""
             fill
             className="object-cover"
@@ -32,7 +48,7 @@ export function ArticleCard({ article }: { article: SampleArticle }) {
 
       <div className="flex flex-col gap-3 p-4">
         <p className="text-xs text-muted-foreground">
-          {article.category} · {article.region}
+          {source.name} · {formatDate(article.published_at)}
         </p>
 
         <Link
@@ -44,14 +60,20 @@ export function ArticleCard({ article }: { article: SampleArticle }) {
           </h3>
         </Link>
 
+        <Badge variant={BIAS_BADGE_VARIANT[analysis.bias_label]} size="sm" className="w-fit">
+          {capitalize(analysis.bias_label)}
+        </Badge>
+
         <BiasMeter
           compact
-          leftPercentage={article.leftPercentage}
-          centerPercentage={article.centerPercentage}
-          rightPercentage={article.rightPercentage}
+          leftPercentage={analysis.left_percentage}
+          centerPercentage={analysis.center_percentage}
+          rightPercentage={analysis.right_percentage}
         />
 
-        <p className="text-xs text-muted-foreground">{article.sourceCount} sources</p>
+        <p className="text-xs text-muted-foreground">
+          {capitalize(analysis.sentiment_label)} sentiment · {Math.round(analysis.confidence * 100)}% confidence
+        </p>
       </div>
     </article>
   );
