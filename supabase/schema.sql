@@ -93,6 +93,97 @@ create policy "Public read access to article analyses"
 grant select on article_analyses to anon, authenticated;
 
 -- =========================================================================
+-- pgvector (AGENTS.md §20) — enable the "vector" extension via Supabase
+-- Dashboard -> Database -> Extensions first, then run the statements below
+-- once in the Dashboard -> SQL Editor. Safe to re-run (idempotent creates).
+-- =========================================================================
+alter table article_analyses add column if not exists embedding vector(1536);
+
+create index if not exists article_analyses_embedding_idx
+  on article_analyses using ivfflat (embedding vector_cosine_ops)
+  with (lists = 100);
+
+-- Cosine-distance ordering against a dynamic query vector isn't expressible
+-- through the PostgREST query builder, so related-article lookups go through
+-- this function instead. security invoker (the default) — no privilege
+-- escalation; it relies on the caller's own access.
+create or replace function match_related_articles(
+  current_article_id uuid,
+  query_embedding vector(1536),
+  match_count int default 5
+)
+returns table (
+  id uuid,
+  title text,
+  image_url text,
+  published_at timestamptz,
+  source_name text,
+  bias_label text,
+  sentiment_label text
+)
+language sql
+stable
+as $$
+  select
+    a.id,
+    a.title,
+    a.image_url,
+    a.published_at,
+    s.name as source_name,
+    aa.bias_label,
+    aa.sentiment_label
+  from article_analyses aa
+  join articles a on a.id = aa.article_id
+  join sources s on s.id = a.source_id
+  where aa.embedding is not null
+    and a.analyzed_at is not null
+    and a.id <> current_article_id
+  order by aa.embedding <=> query_embedding
+  limit match_count;
+$$;
+
+-- =========================================================================
+-- oxylabs_schedules (AGENTS.md §18) — one Oxylabs Scheduler schedule per
+-- active source. oxylabs_schedule_id is text, never bigint/numeric: Oxylabs
+-- schedule ids are 64-bit integers that lose precision through JSON number
+-- parsing (JS and PostgREST both), so the app treats them as opaque strings
+-- end-to-end.
+-- =========================================================================
+create table if not exists oxylabs_schedules (
+  id uuid primary key default gen_random_uuid(),
+  source_id uuid not null unique references sources (id) on delete cascade,
+  oxylabs_schedule_id text not null unique,
+  cron text not null,
+  is_active boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+alter table oxylabs_schedules enable row level security;
+
+-- Internal/ops bookkeeping only, readable exclusively via the service-role
+-- client (which bypasses RLS). Default-deny for anon/authenticated.
+
+-- =========================================================================
+-- oxylabs_schedule_runs (AGENTS.md §18) — dedupe ledger of Oxylabs run jobs
+-- already ingested, so processing never re-scrapes the same homepage
+-- snapshot twice. oxylabs_job_id is text for the same precision reason above.
+-- =========================================================================
+create table if not exists oxylabs_schedule_runs (
+  id uuid primary key default gen_random_uuid(),
+  schedule_id uuid not null references oxylabs_schedules (id) on delete cascade,
+  oxylabs_job_id text not null unique,
+  result_status text not null,
+  processed_at timestamptz not null default now()
+);
+
+create index if not exists oxylabs_schedule_runs_schedule_id_idx on oxylabs_schedule_runs (schedule_id);
+
+alter table oxylabs_schedule_runs enable row level security;
+
+-- Internal/ops bookkeeping only, readable exclusively via the service-role
+-- client (which bypasses RLS). Default-deny for anon/authenticated.
+
+-- =========================================================================
 -- logs
 -- =========================================================================
 create table if not exists logs (

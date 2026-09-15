@@ -26,10 +26,26 @@ export interface RunSummary {
   perSource: PerSourceResult[];
 }
 
+export interface ScheduleSyncSummary {
+  status: "completed" | "failed";
+  sourcesChecked: number;
+  schedulesCreated: number;
+  schedulesSkipped: number;
+  staleSchedulesDeactivated: number;
+  orphanSchedulesDeactivated: number;
+  durationMs: number;
+}
+
+export interface ScheduledResultsSummary extends RunSummary {
+  jobsProcessed: number;
+  jobsFailed: number;
+}
+
 export interface AnalysisRunSummary {
   status: "completed" | "failed";
   articlesScanned: number;
   articlesAnalyzed: number;
+  embeddingsBackfilled: number;
   articlesSkipped: number;
   articlesFailed: number;
   batchesProcessed: number;

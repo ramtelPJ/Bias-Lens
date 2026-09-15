@@ -2,12 +2,13 @@ import "server-only";
 import { NoObjectGeneratedError } from "ai";
 
 import { ANALYSIS_DISCLAIMER, ANALYSIS_MODEL, analyzeArticleText, type AnalysisOutput } from "@/lib/ai/analyze-article";
+import { generateEmbedding } from "@/lib/ai/embed-article";
 import {
   getPendingArticles,
   getPendingArticlesByIds,
   type PendingArticle,
 } from "@/lib/supabase/queries/pending-articles";
-import { insertAnalysis, markArticleAnalyzed } from "@/lib/supabase/queries/pipeline-analyses";
+import { insertAnalysis, markArticleAnalyzed, updateAnalysisEmbedding } from "@/lib/supabase/queries/pipeline-analyses";
 import type { AnalysisRunSummary } from "@/lib/pipeline/types";
 
 const DEFAULT_BATCH_SIZE = 5;
@@ -23,26 +24,47 @@ export interface RunAnalyzeOptions {
   batchSize?: number;
 }
 
-type AttemptResult = { ok: true; output: AnalysisOutput } | { ok: false; reason: "invalid_output" | "api_error" };
+type FailureReason = "invalid_output" | "api_error" | "embedding_error";
+type AnalysisAttempt = { ok: true; output: AnalysisOutput } | { ok: false; reason: FailureReason };
+type EmbeddingAttempt = { ok: true; embedding: number[] } | { ok: false; reason: FailureReason };
 
 function log(message: string, meta?: unknown) {
   console.log(`[analyze] ${message}`, meta ?? "");
 }
 
-async function analyzeWithRetry(article: PendingArticle): Promise<AttemptResult> {
-  let lastReason: "invalid_output" | "api_error" = "api_error";
+async function withRetry<T>(
+  run: () => Promise<T>,
+  onError: (error: unknown) => FailureReason,
+): Promise<{ ok: true; value: T } | { ok: false; reason: FailureReason }> {
+  let lastReason: FailureReason = "api_error";
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     try {
-      const output = await analyzeArticleText(article.title, article.rawText);
-      return { ok: true, output };
+      const value = await run();
+      return { ok: true, value };
     } catch (error) {
-      lastReason = NoObjectGeneratedError.isInstance(error) ? "invalid_output" : "api_error";
-      log(`attempt ${attempt} failed for article ${article.id} (${lastReason})`, error);
+      lastReason = onError(error);
+      log(`attempt ${attempt} failed (${lastReason})`, error);
     }
   }
 
   return { ok: false, reason: lastReason };
+}
+
+async function analyzeWithRetry(title: string, rawText: string): Promise<AnalysisAttempt> {
+  const result = await withRetry(
+    () => analyzeArticleText(title, rawText),
+    (error) => (NoObjectGeneratedError.isInstance(error) ? "invalid_output" : "api_error"),
+  );
+  return result.ok ? { ok: true, output: result.value } : { ok: false, reason: result.reason };
+}
+
+async function embedWithRetry(text: string): Promise<EmbeddingAttempt> {
+  const result = await withRetry(
+    () => generateEmbedding(text),
+    () => "embedding_error" as const,
+  );
+  return result.ok ? { ok: true, embedding: result.value } : { ok: false, reason: result.reason };
 }
 
 export async function runAnalysisPipeline(options: RunAnalyzeOptions = {}): Promise<AnalysisRunSummary> {
@@ -53,14 +75,79 @@ export async function runAnalysisPipeline(options: RunAnalyzeOptions = {}): Prom
 
   let articlesScanned = 0;
   let articlesAnalyzed = 0;
+  let embeddingsBackfilled = 0;
   let articlesSkipped = 0;
   let articlesFailed = 0;
   let batchesProcessed = 0;
   const failureReasons: Record<string, number> = {};
-  // An article that fails (even after retry) has no article_analyses row, so
-  // it would still look "pending" on the next fetch. Track it here so the
-  // loop below can exclude it and actually terminate.
+  // An article that fails (even after retry) still has no article_analyses
+  // row, or still has a null embedding, so it would look "pending" on the
+  // next fetch. Track it here so the loop below can exclude it and actually
+  // terminate.
   const failedIds = new Set<string>();
+
+  function recordFailure(id: string, reason: FailureReason) {
+    articlesFailed += 1;
+    failedIds.add(id);
+    failureReasons[reason] = (failureReasons[reason] ?? 0) + 1;
+    log(`article failed: ${id}`, reason);
+  }
+
+  async function processFullAnalysis(article: Extract<PendingArticle, { kind: "full" }>): Promise<void> {
+    const analysis = await analyzeWithRetry(article.title, article.rawText);
+    if (!analysis.ok) {
+      recordFailure(article.id, analysis.reason);
+      return;
+    }
+
+    const embedding = await embedWithRetry(analysis.output.summary);
+    if (!embedding.ok) {
+      recordFailure(article.id, embedding.reason);
+      return;
+    }
+
+    const biasScore = (analysis.output.rightPercentage - analysis.output.leftPercentage) / 100;
+
+    const insertResult = await insertAnalysis({
+      article_id: article.id,
+      summary: analysis.output.summary,
+      sentiment_score: analysis.output.sentimentScore,
+      sentiment_label: analysis.output.sentimentLabel,
+      bias_score: biasScore,
+      bias_label: analysis.output.politicalFramingLabel,
+      left_percentage: analysis.output.leftPercentage,
+      center_percentage: analysis.output.centerPercentage,
+      right_percentage: analysis.output.rightPercentage,
+      confidence: analysis.output.confidence,
+      framing_notes: analysis.output.framingNotes,
+      loaded_terms: analysis.output.loadedTerms,
+      disclaimer: ANALYSIS_DISCLAIMER,
+      model: ANALYSIS_MODEL,
+      embedding: embedding.embedding,
+    });
+
+    if (insertResult.status === "duplicate") {
+      articlesSkipped += 1;
+      log(`already analyzed, skipped: ${article.id}`);
+      return;
+    }
+
+    await markArticleAnalyzed(article.id);
+    articlesAnalyzed += 1;
+    log(`article analyzed: ${article.id}`);
+  }
+
+  async function processEmbeddingBackfill(article: Extract<PendingArticle, { kind: "embedding-only" }>): Promise<void> {
+    const embedding = await embedWithRetry(article.summary);
+    if (!embedding.ok) {
+      recordFailure(article.id, embedding.reason);
+      return;
+    }
+
+    await updateAnalysisEmbedding(article.id, embedding.embedding);
+    embeddingsBackfilled += 1;
+    log(`embedding backfilled: ${article.id}`);
+  }
 
   async function processBatch(batch: PendingArticle[]): Promise<void> {
     batchesProcessed += 1;
@@ -68,48 +155,16 @@ export async function runAnalysisPipeline(options: RunAnalyzeOptions = {}): Prom
 
     for (const article of batch) {
       articlesScanned += 1;
-      const result = await analyzeWithRetry(article);
-
-      if (!result.ok) {
-        articlesFailed += 1;
-        failedIds.add(article.id);
-        failureReasons[result.reason] = (failureReasons[result.reason] ?? 0) + 1;
-        log(`article failed: ${article.id}`, result.reason);
-        continue;
+      if (article.kind === "full") {
+        await processFullAnalysis(article);
+      } else {
+        await processEmbeddingBackfill(article);
       }
-
-      const biasScore = (result.output.rightPercentage - result.output.leftPercentage) / 100;
-
-      const insertResult = await insertAnalysis({
-        article_id: article.id,
-        summary: result.output.summary,
-        sentiment_score: result.output.sentimentScore,
-        sentiment_label: result.output.sentimentLabel,
-        bias_score: biasScore,
-        bias_label: result.output.politicalFramingLabel,
-        left_percentage: result.output.leftPercentage,
-        center_percentage: result.output.centerPercentage,
-        right_percentage: result.output.rightPercentage,
-        confidence: result.output.confidence,
-        framing_notes: result.output.framingNotes,
-        loaded_terms: result.output.loadedTerms,
-        disclaimer: ANALYSIS_DISCLAIMER,
-        model: ANALYSIS_MODEL,
-      });
-
-      if (insertResult.status === "duplicate") {
-        articlesSkipped += 1;
-        log(`already analyzed, skipped: ${article.id}`);
-        continue;
-      }
-
-      await markArticleAnalyzed(article.id);
-      articlesAnalyzed += 1;
-      log(`article analyzed: ${article.id}`);
     }
 
     log(`batch ${batchesProcessed} completed`, {
       analyzed: articlesAnalyzed,
+      embeddingsBackfilled,
       failed: articlesFailed,
       skipped: articlesSkipped,
     });
@@ -120,6 +175,7 @@ export async function runAnalysisPipeline(options: RunAnalyzeOptions = {}): Prom
       status,
       articlesScanned,
       articlesAnalyzed,
+      embeddingsBackfilled,
       articlesSkipped,
       articlesFailed,
       batchesProcessed,
@@ -134,9 +190,10 @@ export async function runAnalysisPipeline(options: RunAnalyzeOptions = {}): Prom
       await processBatch(articles.slice(i, i + batchSize));
     }
   } else {
-    // Loop until no pending, not-yet-failed articles remain (AGENTS.md §19
-    // requirement #3). excludeIds keeps this from retrying the same failure
-    // forever — see the comment on getPendingArticles.
+    // Loop until no pending, not-yet-failed work remains (AGENTS.md §19
+    // requirement #3, extended to §20's embedding backfill). excludeIds keeps
+    // this from retrying the same failure forever — see the comment on
+    // getPendingArticles.
     for (;;) {
       if (batchesProcessed >= MAX_BATCHES_PER_RUN) {
         const summary = buildSummary("failed");

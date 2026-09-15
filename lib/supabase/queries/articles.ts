@@ -1,4 +1,7 @@
+import "server-only";
+
 import { supabasePublicClient } from "@/lib/supabase/public-client";
+import { supabaseServiceClient } from "@/lib/supabase/service-client";
 import type { Database } from "@/lib/supabase/types";
 
 type ArticleRow = Database["public"]["Tables"]["articles"]["Row"];
@@ -37,4 +40,21 @@ export async function getArticleById(id: string): Promise<ArticleWithAnalysis | 
 
   if (error) throw error;
   return data as unknown as ArticleWithAnalysis | null;
+}
+
+export type RelatedArticle = Database["public"]["Functions"]["match_related_articles"]["Returns"][number];
+
+// AGENTS.md §20: cosine-similarity ordering against a dynamic query vector
+// isn't expressible through the PostgREST query builder, so this calls the
+// match_related_articles SQL function (join + filter + order + limit all
+// live there). Uses the service-role client per §20's explicit instruction.
+export async function getRelatedArticles(articleId: string, embedding: string): Promise<RelatedArticle[]> {
+  const { data, error } = await supabaseServiceClient.rpc("match_related_articles", {
+    current_article_id: articleId,
+    query_embedding: embedding,
+    match_count: 5,
+  });
+
+  if (error) throw error;
+  return data;
 }

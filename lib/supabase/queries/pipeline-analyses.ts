@@ -32,3 +32,15 @@ export async function markArticleAnalyzed(articleId: string): Promise<void> {
 
   if (error) throw error;
 }
+
+// AGENTS.md §20 backfill path: an article_analyses row already exists but
+// has no embedding yet. Only the embedding changes — analyzed_at was already
+// set when the row's analysis was originally saved.
+export async function updateAnalysisEmbedding(articleId: string, embedding: number[]): Promise<void> {
+  const { error } = await supabaseServiceClient
+    .from("article_analyses")
+    .update({ embedding })
+    .eq("article_id", articleId);
+
+  if (error) throw error;
+}

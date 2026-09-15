@@ -75,6 +75,12 @@ export interface Database {
           loaded_terms: string[];
           disclaimer: string;
           model: string;
+          // PostgREST serializes pgvector columns back as their text
+          // representation ("[0.1,0.2,...]"), not a JSON array — confirmed
+          // against the live API. Insert/Update still take a real number[]
+          // (what embed() returns and what we send); only the Row shape
+          // read back is a string.
+          embedding: string | null;
           created_at: string;
         };
         Insert: {
@@ -93,9 +99,48 @@ export interface Database {
           loaded_terms?: string[];
           disclaimer: string;
           model: string;
+          embedding?: number[] | null;
           created_at?: string;
         };
         Update: Partial<Database["public"]["Tables"]["article_analyses"]["Insert"]>;
+        Relationships: [];
+      };
+      oxylabs_schedules: {
+        Row: {
+          id: string;
+          source_id: string;
+          oxylabs_schedule_id: string;
+          cron: string;
+          is_active: boolean;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          source_id: string;
+          oxylabs_schedule_id: string;
+          cron: string;
+          is_active?: boolean;
+          created_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["oxylabs_schedules"]["Insert"]>;
+        Relationships: [];
+      };
+      oxylabs_schedule_runs: {
+        Row: {
+          id: string;
+          schedule_id: string;
+          oxylabs_job_id: string;
+          result_status: string;
+          processed_at: string;
+        };
+        Insert: {
+          id?: string;
+          schedule_id: string;
+          oxylabs_job_id: string;
+          result_status: string;
+          processed_at?: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["oxylabs_schedule_runs"]["Insert"]>;
         Relationships: [];
       };
       logs: {
@@ -120,6 +165,26 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      match_related_articles: {
+        Args: {
+          current_article_id: string;
+          // The only caller passes analysis.embedding straight through, which
+          // is the string PostgREST returns (see the Row comment above).
+          // Postgres casts it to vector(1536) via its text input format.
+          query_embedding: string;
+          match_count?: number;
+        };
+        Returns: {
+          id: string;
+          title: string;
+          image_url: string;
+          published_at: string;
+          source_name: string;
+          bias_label: BiasLabel;
+          sentiment_label: SentimentLabel;
+        }[];
+      };
+    };
   };
 }

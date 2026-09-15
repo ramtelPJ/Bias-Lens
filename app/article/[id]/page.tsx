@@ -11,7 +11,8 @@ import { CategoryChips } from "@/components/layout/category-chips";
 import { SiteFooter } from "@/components/layout/site-footer";
 import { SiteHeader } from "@/components/layout/site-header";
 import { UtilityBar } from "@/components/layout/utility-bar";
-import { getArticleById } from "@/lib/supabase/queries/articles";
+import { RelatedArticleCard } from "@/components/related-article-card";
+import { getArticleById, getRelatedArticles } from "@/lib/supabase/queries/articles";
 import { cn, formatDate } from "@/lib/utils";
 
 const BIAS_TEXT_CLASS = {
@@ -39,6 +40,12 @@ export default async function ArticlePage({
 
   const { analysis, source } = article;
   const bodyParagraphs = article.raw_text.split("\n\n");
+
+  // AGENTS.md §20: never show this section when the current article has no
+  // embedding yet (e.g. still pending backfill).
+  const relatedArticles = analysis.embedding
+    ? await getRelatedArticles(article.id, analysis.embedding)
+    : [];
 
   return (
     <>
@@ -110,6 +117,20 @@ export default async function ArticlePage({
                   <p key={index}>{paragraph}</p>
                 ))}
               </div>
+
+              {relatedArticles.length > 0 && (
+                <>
+                  <hr className="my-8 border-divider" />
+                  <section>
+                    <h2 className="mb-4 text-xl font-semibold text-foreground">Related Articles</h2>
+                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                      {relatedArticles.map((related) => (
+                        <RelatedArticleCard key={related.id} article={related} />
+                      ))}
+                    </div>
+                  </section>
+                </>
+              )}
             </article>
 
             <aside className="flex flex-col gap-6 lg:col-span-1">
